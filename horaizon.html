@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Null Geodesic - Horizon Visualizer</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #050508;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #fff;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+    }
+    #hud {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      padding: 12px 16px;
+      background: rgba(10, 15, 25, 0.75);
+      border: 1px solid rgba(0, 200, 255, 0.3);
+      border-radius: 6px;
+      backdrop-filter: blur(8px);
+      pointer-events: none;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .tag {
+      color: #00d2ff;
+      font-weight: bold;
+    }
+  </style>
+  <!-- Three.js & OrbitControls (CDN) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="hud">
+    <div><span class="tag">PROJECT:</span> ASTER-NG-2021</div>
+    <div><span class="tag">METRIC:</span> Schwarzschild (Static)</div>
+    <div><span class="tag">EVENT HORIZON:</span> r = 2.00 M</div>
+    <div><span class="tag">PHOTON SPHERE:</span> r = 3.00 M</div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // 1. シーン・カメラ・レンダラーの初期化
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 8, 20);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSizeZedでプロジェクト「Null Geodesic」を開き、`horaizon.html`を作成された状態ですね。
+
+ブラウザ単体ですぐに動作確認でき、ブラックホールの重力歪み（事象の地平面と光子球の光の曲がり）を体験できる、Three.js / WebGLシェーダーベースのプロトタイプ実装です。この内容をそのまま `horaizon.html` に貼り付けてブラウザで開いてみてください。
+
+```html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Null Geodesic - Horizon Prototype</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #050508;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #e0e6ed;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+    #hud {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      padding: 16px 20px;
+      background: rgba(13, 17, 23, 0.75);
+      border: 1px solid rgba(56, 139, 253, 0.3);
+      border-radius: 8px;
+      backdrop-filter: blur(8px);
+      pointer-events: none;
+      line-height: 1.6;
+      font-size: 13px;
+    }
+    .title {
+      font-weight: 600;
+      color: #58a6ff;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+    .metric {
+      color: #8b949e;
+    }
+    .value {
+      color: #7ee787;
+      font-family: monospace;
+    }
+  </style>
+  <!-- Three.js CDN -->
+  <script src="[https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js](https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js)"></script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="hud">
+    <div class="title">NULL GEODESIC (ASTER-NG-2021)</div>
+    <div class="metric">Metric: <span class="value">Schwarzschild / Approximated Kerr</span></div>
+    <div class="metric">Mass (M): <span class="value" id="val-mass">1.00</span></div>
+    <div class="metric">Spin (a): <span class="value" id="val-spin">0.00</span></div>
+    <div class="metric">Photon Sphere (r_ph): <span class="value">3.00 M</span></div>
+    <div class="metric">Horizon (r_+): <span class="value">2.00 M</span></div>
+  </div>
+
+  <script>
+    const container = document.getElementById('canvas-container');
+
+    // シーン・カメラ・レンダラーのセットアップ
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    // フルスクリーンクアッド用シェーダーマテリアル
+    // 測地線の偏向（重力レンズ効果）と降着円盤・ブラックホールシャドウをレイトレーシング近似で描画
+    const blackHoleMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        u_resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+        u_time: { value: 0.0 },
+        u_mass: { value: 1.0 },
+        u_spin: { value: 0.0 },
+        u_mouse: { value: new THREE.Vector2(0.5, 0.5) }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec2 u_resolution;
+        uniform float u_time;
+        uniform float u_mass;
+        uniform float u_spin;
+        uniform vec2 u_mouse;
+        varying vec2 vUv;
+
+        #define MAX_STEPS 120
+        #define STEP_SIZE 0.08
+
+        // 背景星野擬似プロシージャルテクスチャ
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+
+        float starField(vec3 dir) {
+          vec2 p = vec2(atan(dir.z, dir.x), asin(dir.y)) * 8.0;
+          float n = hash(floor(p));
+          float star = step(0.985, n) * pow(fract(sin(n * 100.0) * 10.0), 4.0);
+          return star * 1.5;
+        }
+
+        void main() {
+          vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+
+          // カメラ・光線初期化
+          float camDist = 12.0;
+          float rotX = (u_mouse.y - 0.5) * 2.0;
+          float rotY = (u_mouse.x - 0.5) * 4.0 + u_time * 0.05;
+
+          vec3 rayOrigin = vec3(camDist * sin(rotY) * cos(rotX), camDist * sin(rotX), camDist * cos(rotY) * cos(rotX));
+          vec3 target = vec3(0.0);
+          vec3 forward = normalize(target - rayOrigin);
+          vec3 right = normalize(cross(forward, vec3(0.0, 1.0, 0.0)));
+          vec3 up = cross(right, forward);
+          vec3 rayDir = normalize(forward + uv.x * right + uv.y * up);
+
+          // 物理パラメータ
+          float M = u_mass;
+          float r_horizon = 2.0 * M;
+          float r_photon = 3.0 * M;
+
+          vec3 pos = rayOrigin;
+          vec3 dir = rayDir;
+          vec3 col = vec3(0.0);
+          float diskGlow = 0.0;
+          bool absorbed = false;
+
+          // 簡易測地線レイトレーシング（一般相対論的偏向加速度）
+          for (int i = 0; i < MAX_STEPS; i++) {
+            float r = length(pos);
+
+            // 事象の地平面への吸入判定
+            if (r < r_horizon) {
+              absorbed = true;
+              break;
+            }
+
+            // 測地線偏向: 簡易重力ポテンシャルによる光線の曲がり (d^2x/dλ^2 近似)
+            vec3 gAcc = -1.5 * M * pos / pow(r, 4.0);
+            dir = normalize(dir + gAcc * STEP_SIZE);
+            pos += dir * STEP_SIZE * min(r * 0.35, 1.5);
+
+            // 降着円盤（Accretion Disk）のサンプリング
+            if (abs(pos.y) < 0.12 && r > 2.6 * M && r < 7.5 * M) {
+              float diskDensity = smoothstep(7.5 * M, 3.5 * M, r) * smoothstep(2.4 * M, 3.2 * M, r);
+              float doppler = 1.0 + dot(dir, normalize(cross(vec3(0.0, 1.0, 0.0), pos))) * 0.4;
+              diskGlow += diskDensity * 0.08 * doppler;
+            }
+          }
+
+          if (absorbed) {
+            // シャドウ（完全な黒）
+            col = vec3(0.002, 0.002, 0.005);
+          } else {
+            // 偏向された背景の星野
+            col = vec3(starField(dir));
+          }
+
+          // 降着円盤のオレンジ/ブルー発光を加算
+          vec3 diskColor = vec3(1.0, 0.6, 0.25) * diskGlow * 3.5;
+          col += diskColor;
+
+          // 光子球リングの発光（フォトンリング）
+          float minR = length(pos);
+          if (absorbed && minR < r_photon && minR > r_horizon) {
+            col += vec3(0.3, 0.6, 1.0) * 0.4;
+          }
+
+          // トーンマッピング
+          col = col / (1.0 + col);
+          col = pow(col, vec3(1.0 / 2.2));
+
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `
+    });
+
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), blackHoleMaterial);
+    scene.add(quad);
+
+    // マウス操作によるアングル変更
+    window.addEventListener('mousemove', (e) => {
+      blackHoleMaterial.uniforms.u_mouse.value.x = e.clientX / window.innerWidth;
+      blackHoleMaterial.uniforms.u_mouse.value.y = 1.0 - (e.clientY / window.innerHeight);
+    });
+
+    window.addEventListener('resize', () => {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      blackHoleMaterial.uniforms.u_resolution.value.set(window.innerWidth, window.innerHeight);
+    });
+
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      blackHoleMaterial.uniforms.u_time.value = clock.getElapsedTime();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
